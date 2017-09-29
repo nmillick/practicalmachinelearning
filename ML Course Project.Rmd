@@ -1,0 +1,121 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Nigel Millick"
+output: html_document
+---
+
+This is the course project for the Practical Machine Learning course offered through Coursera. The goal of this assignment is to create a statistical model that will try and predict the manner in which an individual performed an exercise. To start, we need to import the available data and load necessary packages.
+
+```{r results='hide', message=FALSE}
+#Load Packages
+library(caret)
+library(readr)
+
+#Load Data
+training <- read_csv("~/R/win-library/pml-training.csv")
+testing <- read_csv("~/r/win-library/pml-testing.csv")
+
+```
+Next we create a subset of the training data as an initial test set.
+```{r train}
+#Subset
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+
+myTraining <- training[inTrain, ]
+myTesting <- training[-inTrain, ]
+
+dim(myTraining); dim(myTesting)
+```
+
+## Data Cleansing
+In order to perform our analysis we need to next clean the data. This is done by removing variables with zero variance, variables that are mostly missing data, and data keys such as usernames, datestamps, etc.
+```{r clean}
+# remove variables with nearly zero variance
+nzv <- nearZeroVar(myTraining)
+myTraining <- myTraining[, -nzv]
+myTesting <- myTesting[, -nzv]
+
+# remove variables that are mostly NA
+mostlyNA <- sapply(myTraining, function(x) mean(is.na(x))) > 0.95
+myTraining <- myTraining[, mostlyNA==F]
+myTesting <- myTesting[, mostlyNA==F]
+
+# remove variables that are used as row identifiers
+myTraining <- myTraining[, -(1:5)]
+myTesting <- myTesting[, -(1:5)]
+```
+
+## rPart
+Since this is a classification problem, we will begin by using the rpart model.
+
+```{r glm}
+set.seed(1234)
+modFitRP <- train(classe ~., method = "rpart",
+                            data = myTraining,
+                            na.action = na.omit)
+
+confusionMatrix(modFitRP)
+```
+As we can see from the confusion matrix, the accuracy is less than 60%. This model is clearly unacceptable.
+
+## Random Forest
+The next model we will attempt is a random forest. This was selected because of its accuracy, and since the dataset is relativily small we don't need to worry about performance issues.
+
+```{r rf}
+set.seed(1234)
+modFitRF <- train(classe ~., method = "rf",
+                            data = myTraining, 
+                            trControl = trainControl(method ="cv"),number=3,
+                            na.action = na.omit)
+
+confusionMatrix(modFitRF)
+```
+
+As we can see, this model has a 99% accuracy rating. Thus we will use this for our predictions.
+
+## Test Set Validation
+To validate, we will now test it  using the full training set.
+
+```{r recalibrate}
+# remove variables with nearly zero variance
+nzv <- nearZeroVar(training)
+training <- training[, -nzv]
+testing <- testing[, -nzv]
+
+# remove variables that are mostly NA
+mostlyNA <- sapply(training, function(x) mean(is.na(x))) > 0.95
+training <- training[, mostlyNA==F]
+testing <- testing[, mostlyNA==F]
+
+# remove variables that are used as row identifiers
+training <- training[, -(1:5)]
+testing <- testing[, -(1:5)]
+
+modFitRF <- train(classe ~., method = "rf",
+                            data = training, 
+                            trControl = trainControl(method ="cv"),number=3,
+                            na.action = na.omit)
+```
+
+## Making Predictions
+
+Finally, we use the test set that was omitted during our research as a final test and print the results.
+```{r test}
+##Prediction
+pred <- predict(modFitRF, testing)
+
+##convert to character
+pred <- as.character(pred)
+
+# create function to write predictions to files
+writePredFun <- function(x) {
+    n <- length(x)
+    for(i in 1:n) {
+        filename <- paste0("problem_id_", i, ".txt")
+        write.table(x[i], file=filename, quote=F, row.names=F, col.names=F)
+    }
+}
+
+# create prediction files to submit
+writePredFun(pred)
+```
